@@ -2,7 +2,7 @@
 
 Fast, web-first sandbox to iterate on pose ingestion, preprocessing, rep/phase detection, and learned quality scoring. Mirrors the React Native pipeline and exports models via ONNX for on-device inference.
 
-- Framework: Vue 3 + Vite + TypeScript
+- Framework: React + Vite + TypeScript
 - Pose: MediaPipe Tasks (Pose Landmarker) in the browser
 - Inference: onnxruntime-web (WebGL/WebGPU)
 - Parity: Shared TypeScript feature pipeline used in both web and RN
@@ -41,19 +41,23 @@ npm run dev
 ## Pose pipeline overview
 
 1. Pose ingestion (MediaPipe Tasks)
+
    - Initialize Pose Landmarker with video stream (front/side camera angles supported).
    - Stream world or normalized landmarks to the pipeline at target FPS.
 
 2. Preprocessing/features (shared TS)
+
    - Landmark smoothing and gap handling
    - Angle/velocity/ratio features (exercise-specific subsets)
    - Normalization using Python-exported `feature_norms.json` (lock order/constants)
 
 3. Rep/phase detection
+
    - Rule-based state machine driven by key features and thresholds
    - Optional DTW against reference traces for phase alignment/validation
 
 4. Quality scoring (ONNX)
+
    - Load `quality_scorer.onnx` via onnxruntime-web (WebGL/WebGPU > WASM)
    - Feed normalized feature windows
    - Confidence-gated feedback to avoid spam; phase-aware cues
