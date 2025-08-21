@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardAction } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toggle } from '@/components/ui/toggle'
+import { Button } from './components/ui/button'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
   webcamRunningRef.current = webcamRunning
   const animationFrameId = useRef<number | null>(null)
   const [poseResult, setPoseResult] = useState<any>(null)
+  const poseResultHistory = useRef<any[]>([])
   const [fps, setFps] = useState('0')
   const frameCount = useRef(0)
   const lastFpsUpdateTime = useRef(performance.now())
@@ -59,6 +61,9 @@ function App() {
       await stopWebcam()
     }
 
+    // Clear previous session data
+    poseResultHistory.current = []
+
     const url = URL.createObjectURL(file)
     // Load selected image into <img>
     await new Promise<void>((resolve, reject) => {
@@ -82,6 +87,7 @@ function App() {
     // Run pose detection
     const result = landmarker.current.detect(img)
     setPoseResult(result)
+    poseResultHistory.current.push(result)
 
     // Draw pose overlay
     const drawing = new DrawingUtils(ctx)
@@ -115,7 +121,9 @@ function App() {
 
     const currentTime = performance.now()
     landmarker.current.detectForVideo(video, currentTime, (result) => {
-      setPoseResult({ ...result, timestamp: currentTime })
+      const resultWithTimestamp = { ...result, timestamp: currentTime }
+      setPoseResult(resultWithTimestamp)
+      poseResultHistory.current.push(resultWithTimestamp)
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       ctx.save()
@@ -140,6 +148,10 @@ function App() {
       console.warn('Webcam is not supported by your browser')
       return
     }
+
+    // Clear previous session data
+    poseResultHistory.current = []
+    setPoseResult(null)
 
     setWebcamRunning(true)
     const constraints = {
@@ -187,6 +199,24 @@ function App() {
     } else {
       await startWebcam()
     }
+  }
+
+  const exportPoseData = () => {
+    if (poseResultHistory.current.length === 0) {
+      alert('No data to export. Please run a webcam session first.')
+      return
+    }
+
+    const jsonString = JSON.stringify(poseResultHistory.current, null, 2)
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pose_session_${Date.now()}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -258,6 +288,9 @@ function App() {
         <Card id="pose-correction-card" className="h-full w-full px-2">
           <CardHeader>
             <CardTitle>Input</CardTitle>
+            <CardAction>
+              <Button onClick={exportPoseData}>Export</Button>
+            </CardAction>
           </CardHeader>
           <CardContent className="bg-secondary h-full flex-1 overflow-auto p-2">
             <pre className="h-full w-full text-xs">{JSON.stringify(poseResult, null, 2)}</pre>
