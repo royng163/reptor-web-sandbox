@@ -17,6 +17,7 @@ function App() {
   const webcamRunningRef = useRef(webcamRunning)
   webcamRunningRef.current = webcamRunning
   const animationFrameId = useRef<number | null>(null)
+  const [poseResult, setPoseResult] = useState<any>(null)
   const [fps, setFps] = useState('0')
   const frameCount = useRef(0)
   const lastFpsUpdateTime = useRef(performance.now())
@@ -80,6 +81,7 @@ function App() {
 
     // Run pose detection
     const result = landmarker.current.detect(img)
+    setPoseResult(result)
 
     // Draw pose overlay
     const drawing = new DrawingUtils(ctx)
@@ -111,8 +113,9 @@ function App() {
     const canvas = canvasEl.current
     const ctx = canvas.getContext('2d')!
 
-    const startTimeMs = performance.now()
-    landmarker.current.detectForVideo(video, startTimeMs, (result) => {
+    const currentTime = performance.now()
+    landmarker.current.detectForVideo(video, currentTime, (result) => {
+      setPoseResult({ ...result, timestamp: currentTime })
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       ctx.save()
@@ -254,9 +257,11 @@ function App() {
         </Label>
         <Card id="pose-correction-card" className="h-full w-full px-2">
           <CardHeader>
-            <CardTitle>To Be Implemented.</CardTitle>
+            <CardTitle>Input</CardTitle>
           </CardHeader>
-          <CardContent></CardContent>
+          <CardContent className="bg-secondary h-full flex-1 overflow-auto p-2">
+            <pre className="h-full w-full text-xs">{JSON.stringify(poseResult, null, 2)}</pre>
+          </CardContent>
         </Card>
       </div>
     </div>
