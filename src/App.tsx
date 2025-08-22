@@ -8,6 +8,20 @@ import { Toggle } from '@/components/ui/toggle'
 import { Button } from './components/ui/button'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 
+function drawPoses(ctx: CanvasRenderingContext2D, landmarksGroups: any[][], visibilityThreshold: number = 0.0) {
+  const drawing = new DrawingUtils(ctx)
+  for (const landmarks of landmarksGroups) {
+    // Collect visible indices
+    const visible = new Set<number>()
+    landmarks.forEach((lm: any, i: number) => {
+      if ((lm.visibility ?? 0) >= visibilityThreshold) visible.add(i)
+    })
+    const visibleLandmarks = Array.from(visible.values()).map((i) => landmarks[i])
+    drawing.drawConnectors(visibleLandmarks, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF7F', lineWidth: 3 })
+    drawing.drawLandmarks(visibleLandmarks, { color: '#FF3B30', radius: 2 })
+  }
+}
+
 function App() {
   const imgEl = useRef<HTMLImageElement | null>(null)
   const videoEl = useRef<HTMLVideoElement | null>(null)
@@ -89,12 +103,9 @@ function App() {
     setPoseResult(result)
     poseResultHistory.current.push(result)
 
-    // Draw pose overlay
-    const drawing = new DrawingUtils(ctx)
-    for (const landmarks of result.landmarks) {
-      drawing.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF7F', lineWidth: 3 })
-      drawing.drawLandmarks(landmarks, { color: '#FF3B30', radius: 2 })
-    }
+    ctx.save()
+    drawPoses(ctx, result.landmarks)
+    ctx.restore()
 
     URL.revokeObjectURL(url)
   }
@@ -128,11 +139,7 @@ function App() {
       canvas.height = video.videoHeight
       ctx.save()
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-      const drawing = new DrawingUtils(ctx)
-      for (const landmarks of result.landmarks) {
-        drawing.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF7F', lineWidth: 3 })
-        drawing.drawLandmarks(landmarks, { color: '#FF3B30', radius: 2 })
-      }
+      drawPoses(ctx, result.landmarks)
       ctx.restore()
     })
 
