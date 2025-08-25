@@ -27,10 +27,11 @@ function App() {
   const videoEl = useRef<HTMLVideoElement | null>(null)
   const canvasEl = useRef<HTMLCanvasElement | null>(null)
   const landmarker = useRef<PoseLandmarker | null>(null)
-  const [inputMode, setInputMode] = useState<'IMAGE' | 'VIDEO'>('IMAGE')
+  const [inputMode, setInputMode] = useState<'IMAGE' | 'VIDEO'>('VIDEO')
   const [webcamRunning, setWebcamRunning] = useState(false)
   const webcamRunningRef = useRef(webcamRunning)
   webcamRunningRef.current = webcamRunning
+  const videoFileActiveRef = useRef(false)
   const animationFrameId = useRef<number | null>(null)
   const [poseResult, setPoseResult] = useState<any>(null)
   const poseResultHistory = useRef<any[]>([])
@@ -49,7 +50,7 @@ function App() {
           modelAssetPath: 'app/shared/models/pose_landmarker_lite.task',
           delegate: 'GPU',
         },
-        runningMode: inputMode,
+        runningMode: 'VIDEO',
         numPoses: 1,
         minPoseDetectionConfidence: 0.5,
         minPosePresenceConfidence: 0.5,
@@ -65,21 +66,49 @@ function App() {
       landmarker.current?.close()
       landmarker.current = null
     }
-  }, [inputMode])
+  }, [])
 
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !landmarker.current || !imgEl.current || !canvasEl.current) return
+    if (!file || !landmarker.current || !imgEl.current || !canvasEl.current || !videoEl.current) return
 
+    // Clear previous session data
     if (webcamRunningRef.current) {
       await stopWebcam()
     }
-
-    // Clear previous session data
+    if (videoFileActiveRef.current) {
+      videoFileActiveRef.current = false
+      const v = videoEl.current
+      v.pause()
+      v.removeAttribute('src')
+      v.load()
+    }
     poseResultHistory.current = []
+    setPoseResult(null)
 
     const url = URL.createObjectURL(file)
-    // Load selected image into <img>
+    // ---- VIDEO FILE PATH ----
+    if (file.type.startsWith('video/')) {
+      videoFileActiveRef.current = true
+      setInputMode('VIDEO')
+      console.log('Set runningMode to VIDEO')
+      await landmarker.current.setOptions({ runningMode: 'VIDEO' })
+
+      const video = videoEl.current
+      video.srcObject = null
+      video.src = url
+      video.onloadeddata = () => {
+        animationFrameId.current = requestAnimationFrame(predictVideo)
+      }
+      video.onended = () => {
+        videoFileActiveRef.current = false
+      }
+      return
+    }
+
+    // ---- IMAGE FILE PATH ----
+    setInputMode('IMAGE')
+    await landmarker.current.setOptions({ runningMode: 'IMAGE' })
     await new Promise<void>((resolve, reject) => {
       if (!imgEl.current) {
         reject(new Error('Image element not found'))
@@ -110,8 +139,13 @@ function App() {
     URL.revokeObjectURL(url)
   }
 
-  const predictWebcam = useCallback(async () => {
-    if (!landmarker.current || !videoEl.current || !canvasEl.current || !webcamRunningRef.current) {
+  const predictVideo = useCallback(async () => {
+    if (
+      !landmarker.current ||
+      !videoEl.current ||
+      !canvasEl.current ||
+      (!webcamRunningRef.current && !videoFileActiveRef.current)
+    ) {
       return
     }
 
@@ -144,8 +178,8 @@ function App() {
     })
 
     // Continue the loop
-    if (webcamRunningRef.current) {
-      animationFrameId.current = requestAnimationFrame(predictWebcam)
+    if (webcamRunningRef.current || videoFileActiveRef.current) {
+      animationFrameId.current = requestAnimationFrame(predictVideo)
     }
   }, [])
 
@@ -169,7 +203,7 @@ function App() {
     }
     const stream = await navigator.mediaDevices.getUserMedia(constraints)
     videoEl.current.srcObject = stream
-    videoEl.current.addEventListener('loadeddata', predictWebcam)
+    videoEl.current.addEventListener('loadeddata', predictVideo)
   }
 
   const stopWebcam = async () => {
@@ -184,7 +218,7 @@ function App() {
     const stream = videoEl.current.srcObject as MediaStream
     stream?.getTracks().forEach((track) => track.stop())
     videoEl.current.srcObject = null
-    videoEl.current.removeEventListener('loadeddata', predictWebcam)
+    videoEl.current.removeEventListener('loadeddata', predictVideo)
 
     // Clear canvas
     const canvas = canvasEl.current
@@ -204,6 +238,8 @@ function App() {
     if (webcamRunningRef.current) {
       await stopWebcam()
     } else {
+      setInputMode('VIDEO')
+      await landmarker.current.setOptions({ runningMode: 'VIDEO' })
       await startWebcam()
     }
   }
@@ -235,27 +271,23 @@ function App() {
         </Label>
         <Card id="pose-landmarker-card" className="h-full w-full px-2">
           {/** Input Source Selection **/}
-          <Tabs defaultValue="image">
+          <Tabs defaultValue="file">
             <CardHeader>
               <CardTitle>Select Input Source</CardTitle>
               <CardDescription>
                 <TabsList>
-                  <TabsTrigger value="image" onClick={() => setInputMode('IMAGE')}>
-                    Image File
-                  </TabsTrigger>
-                  <TabsTrigger value="video" onClick={() => setInputMode('VIDEO')}>
-                    Web Camera
-                  </TabsTrigger>
+                  <TabsTrigger value="file">Image File</TabsTrigger>
+                  <TabsTrigger value="cam">Web Camera</TabsTrigger>
                 </TabsList>
               </CardDescription>
               <CardAction>
-                <TabsContent value="image">
+                <TabsContent value="file">
                   <div className="grid w-full max-w-sm gap-2">
-                    <Label htmlFor="file-input">Input</Label>
-                    <Input id="file-input" type="file" accept="image/*" onChange={onFileChange} />
+                    <Label htmlFor="file-input">Input ({fps} FPS)</Label>
+                    <Input id="file-input" type="file" accept="image/*,video/*" onChange={onFileChange} />
                   </div>
                 </TabsContent>
-                <TabsContent value="video">
+                <TabsContent value="cam">
                   <div className="grid w-full max-w-sm gap-2">
                     <Label>Webcam ({fps} FPS)</Label>
                     <Toggle onClick={handleWebcamClick} variant="outline">
@@ -273,12 +305,12 @@ function App() {
               <TransformComponent wrapperClass="w-full h-full" contentClass="relative h-full w-full">
                 <img
                   ref={imgEl}
-                  className={`h-full w-full object-contain ${inputMode === 'VIDEO' ? 'hidden' : 'block'}`}
+                  className={`h-full w-full object-contain ${inputMode == 'IMAGE' ? 'block' : 'hidden'}`}
                 />
                 <video
                   ref={videoEl}
                   autoPlay
-                  className={`h-full w-full object-contain ${inputMode === 'IMAGE' ? 'hidden' : 'block'}`}
+                  className={`h-full w-full object-contain ${inputMode == 'VIDEO' ? 'block' : 'hidden'}`}
                 ></video>
                 <canvas ref={canvasEl} className="absolute inset-0 h-full w-full" />
               </TransformComponent>
