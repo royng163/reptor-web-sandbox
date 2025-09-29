@@ -5,6 +5,7 @@ import * as tf from '@tensorflow/tfjs-core'
 import '@tensorflow/tfjs-backend-webgl'
 import '@tensorflow/tfjs-backend-wasm'
 import { loadGraphModel, type GraphModel } from '@tensorflow/tfjs-converter'
+import { computeLetterbox, mapFromLetterbox } from '@royng163/fitness-coach-core'
 
 export type Keypoint = {
   x: number
@@ -207,24 +208,19 @@ export class TfjsPoseDetector implements PoseDetector {
     const srcW = input instanceof HTMLVideoElement ? input.videoWidth : input.naturalWidth
     const srcH = input instanceof HTMLVideoElement ? input.videoHeight : input.naturalHeight
 
-    const { tensor4d, scale, dx, dy } = tf.tidy(() => {
+    const letter = computeLetterbox(srcW, srcH, INPUT_SIZE)
+
+    const tensor4d = tf.tidy(() => {
       // Create tensor [H, W, 3]
       const img = tf.browser.fromPixels(input as HTMLImageElement | HTMLVideoElement)
-      // Letterbox to square INPUT_SIZE, centered padding
-      const s = Math.min(INPUT_SIZE / srcW, INPUT_SIZE / srcH)
-      const newW = Math.round(srcW * s)
-      const newH = Math.round(srcH * s)
-      const resized = tf.image.resizeBilinear(img, [newH, newW], true)
-      const dxPad = Math.floor((INPUT_SIZE - newW) / 2)
-      const dyPad = Math.floor((INPUT_SIZE - newH) / 2)
+      const resized = tf.image.resizeBilinear(img, [letter.resized.height, letter.resized.width], true)
       const padded = tf.pad(resized, [
-        [dyPad, INPUT_SIZE - newH - dyPad],
-        [dxPad, INPUT_SIZE - newW - dxPad],
+        [letter.dy, INPUT_SIZE - letter.resized.height - letter.dy],
+        [letter.dx, INPUT_SIZE - letter.resized.width - letter.dx],
         [0, 0],
       ])
       const normalized = tf.div(padded, 255)
-      const batched = tf.expandDims(normalized, 0) as tf.Tensor4D // [1, S, S, 3]
-      return { tensor4d: batched, scale: s, dx: dxPad, dy: dyPad }
+      return tf.expandDims(normalized, 0) as tf.Tensor4D // [1, S, S, 3]
     })
 
     try {
@@ -251,12 +247,10 @@ export class TfjsPoseDetector implements PoseDetector {
       const kpArr = (await kpTensor.array()) as number[][]
 
       const kpts: Keypoint[] = kpArr!.map(([x, y, v]) => {
-        // If the model outputs normalized coords (0..1), scale to INPUT_SIZE first
-        const px = x <= 1 && y <= 1 ? x * INPUT_SIZE : x
-        const py = x <= 1 && y <= 1 ? y * INPUT_SIZE : y
-        const ox = Math.max(0, Math.min(srcW, (px - dx) / scale))
-        const oy = Math.max(0, Math.min(srcH, (py - dy) / scale))
-        return { x: ox, y: oy, visibility: v }
+        // If the model outputs normalized coords (0..1), we map with normalized=true
+        const normalized = x <= 1 && y <= 1
+        const mapped = mapFromLetterbox(x, y, srcW, srcH, letter, normalized)
+        return { x: mapped.x, y: mapped.y, visibility: v }
       })
       return { keypoints: kpts, keypoints3D: [], timestamp }
     } finally {
