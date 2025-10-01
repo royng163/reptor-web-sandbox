@@ -1,5 +1,5 @@
 {
-  "name": "fitness-coach-web-sandbox",
+  "name": "reptor-web-sandbox",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
-    "@royng163/fitness-coach-core": "github:royng163/fitness-coach-core#main",
+    "@royng163/reptor-core": "github:royng163/reptor-core#main",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",

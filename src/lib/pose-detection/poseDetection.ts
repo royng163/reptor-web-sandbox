@@ -5,7 +5,7 @@ import * as tf from '@tensorflow/tfjs-core'
 import '@tensorflow/tfjs-backend-webgl'
 import '@tensorflow/tfjs-backend-wasm'
 import { loadGraphModel, type GraphModel } from '@tensorflow/tfjs-converter'
-import { computeLetterbox, mapFromLetterbox } from '@royng163/fitness-coach-core'
+import { computeLetterbox, mapFromLetterbox } from '@royng163/reptor-core'
 
 export type Keypoint = {
   x: number
