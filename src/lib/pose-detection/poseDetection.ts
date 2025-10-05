@@ -5,15 +5,7 @@ import * as tf from '@tensorflow/tfjs-core'
 import '@tensorflow/tfjs-backend-webgl'
 import '@tensorflow/tfjs-backend-wasm'
 import { loadGraphModel, type GraphModel } from '@tensorflow/tfjs-converter'
-import { computeLetterbox, mapFromLetterbox } from '@royng163/reptor-core'
-
-export type Keypoint = {
-  x: number
-  y: number
-  z?: number
-  visibility?: number
-  name?: string
-}
+import { computeLetterbox, mapFromLetterbox, Keypoint, PoseResult } from '@royng163/reptor-core'
 
 export const EDGES_17: [number, number][] = [
   [5, 7],
@@ -49,12 +41,6 @@ export const EDGES_33: [number, number][] = [
   [11, 15],
   [12, 16],
 ]
-
-export interface PoseResult {
-  keypoints: Keypoint[]
-  keypoints3D?: Keypoint[]
-  timestamp?: number
-}
 
 export type MediaType = HTMLImageElement | HTMLVideoElement
 
