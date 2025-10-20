@@ -53,7 +53,7 @@ function App() {
   webcamRunningRef.current = webcamRunning
   const videoFileActiveRef = useRef(false)
   const animationFrameId = useRef<number | null>(null)
-  const [modelType, setModelType] = useState<'movenet-lightning' | 'blazepose-lite' | 'posenet'>('blazepose-lite')
+  const [modelType, setModelType] = useState<'movenet-lightning' | 'blazepose-lite' | 'yolo11'>('blazepose-lite')
   const [loadingModel, setLoadingModel] = useState(false)
   const [poseResult, setPoseResult] = useState<PoseResult | null>(null)
   const poseResultHistory = useRef<PoseResult[]>([])
@@ -64,7 +64,6 @@ function App() {
   useEffect(() => {
     const init = async () => {
       setLoadingModel(true)
-      console.log(`Initializing model: ${modelType}...`)
 
       // Clear previous session data
       if (webcamRunningRef.current) {
@@ -86,6 +85,8 @@ function App() {
       // Clear image
       if (imgEl.current) {
         imgEl.current.src = ''
+        imgEl.current.onload = null
+        imgEl.current.onerror = null
       }
 
       // Clear canvas
@@ -112,7 +113,6 @@ function App() {
       })
 
       setLoadingModel(false)
-      console.log('Pose detector ready.')
     }
     init()
   }, [modelType])
@@ -149,9 +149,17 @@ function App() {
       const video = videoEl.current
       video.srcObject = null
       video.src = url
+
       video.onloadeddata = () => {
         animationFrameId.current = requestAnimationFrame(predictVideo)
       }
+      video.onerror = () => {
+        const e = video.error
+        alert('Error loading video: ' + e?.message)
+        URL.revokeObjectURL(url)
+        videoFileActiveRef.current = false
+      }
+
       video.onended = () => {
         setFps('0')
         videoFileActiveRef.current = false
@@ -334,8 +342,8 @@ function App() {
             <Label htmlFor="r2">MoveNet</Label>
           </div>
           <div className="flex items-center gap-3">
-            <RadioGroupItem value="posenet" id="r3" />
-            <Label htmlFor="r3">PoseNet</Label>
+            <RadioGroupItem value="yolo11" id="r3" />
+            <Label htmlFor="r3">YOLO11</Label>
           </div>
         </RadioGroup>
         <Card id="pose-landmarker-card" className="h-full w-full px-2">
