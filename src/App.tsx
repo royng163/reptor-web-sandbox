@@ -307,7 +307,7 @@ function App() {
       return
     }
 
-    const jsonString = JSON.stringify({ modelType, poseResul: poseResultHistory.current }, null, 2)
+    const jsonString = JSON.stringify({ modelType, poseResult: poseResultHistory.current }, null, 2)
     const blob = new Blob([jsonString], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
