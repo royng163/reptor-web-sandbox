@@ -1,11 +1,9 @@
-// https://github.com/tensorflow/tfjs-models/tree/master/pose-detection
-
 import * as posedetection from '@tensorflow-models/pose-detection'
 import * as tf from '@tensorflow/tfjs-core'
 import '@tensorflow/tfjs-backend-webgl'
 import '@tensorflow/tfjs-backend-wasm'
 import { loadGraphModel, type GraphModel } from '@tensorflow/tfjs-converter'
-import { computeLetterbox, mapFromLetterbox, Keypoint, PoseResult } from '@royng163/reptor-core'
+import { computeLetterbox, mapFromLetterbox, type Keypoint, type PoseResult } from '@royng163/reptor-core'
 
 export const EDGES_17: [number, number][] = [
   [5, 7],

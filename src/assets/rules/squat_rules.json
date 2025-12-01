@@ -1,0 +1,32 @@
+[
+  {
+    "exercise_id": 0,
+    "exercise_name": "squat",
+    "rules": [
+      {
+        "id": "depth",
+        "error_type": "insufficient_range_lower_body",
+        "type": "range",
+        "comparator": "min",
+        "targetPhase": "DESCENDING",
+        "evaluation": "PHASE",
+        "feature": "knee_flexion",
+        "thresholds": {
+          "front": 138.86027003680022
+        }
+      },
+      {
+        "id": "stance_width",
+        "error_type": "joint_alignment_knees",
+        "type": "range",
+        "comparator": "mean",
+        "targetPhase": "IDLE",
+        "evaluation": "REP",
+        "feature": "stance_width",
+        "thresholds": {
+          "front": 1.59641686338858
+        }
+      }
+    ]
+  }
+]

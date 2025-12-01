@@ -7,14 +7,39 @@ import { Toggle } from '@/components/ui/toggle'
 import { Button } from './components/ui/button'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
+import { TfjsPoseDetector, EDGES_17, EDGES_33, type PoseDetector } from '@/lib/pose-detection/poseDetection'
 import {
-  TfjsPoseDetector,
-  EDGES_17,
-  EDGES_33,
-  type PoseDetector,
-  type PoseResult,
+  RepDetector,
+  FeatureAggregator,
+  RuleEngine,
+  calculateAngle,
   type Keypoint,
-} from '@/lib/pose-detection/poseDetection'
+  type PoseResult,
+  type Feedback,
+  midpoint,
+} from '@royng163/reptor-core'
+import SQUAT_RULES from '@/assets/rules/squat_rules.json'
+
+// Debug state type
+interface DebugInfo {
+  // Instant features
+  kneeAngleLeft: number
+  kneeAngleRight: number
+  avgKneeAngle: number
+  trunkAngle: number
+  stanceWidth: number
+  // Phase detection
+  currentPhase: string
+  repCount: number
+  isRepFinished: boolean
+  // Keypoint visibility
+  keypointsDetected: number
+  totalKeypoints: number
+  // Last evaluation results
+  lastEvaluation: Feedback[] | null
+  avgHipY: number
+  velocity: number
+}
 
 function drawPoses(ctx: CanvasRenderingContext2D, poses: Keypoint[]) {
   ctx.lineWidth = 3
@@ -60,6 +85,31 @@ function App() {
   const [fps, setFps] = useState('0')
   const frameCount = useRef(0)
   const lastFpsUpdateTime = useRef(performance.now())
+
+  const [feedback, setFeedback] = useState<string>('Ready to Evaluate')
+  const repDetector = useRef(new RepDetector()).current
+  const aggregator = useRef(new FeatureAggregator()).current
+  const ruleEngine = useRef(new RuleEngine(SQUAT_RULES[0] as any)).current
+
+  // Smoothing buffers for noisy signals
+  const trunkAngleBuffer = useRef<number[]>([])
+
+  // Debug state
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({
+    kneeAngleLeft: 0,
+    kneeAngleRight: 0,
+    avgKneeAngle: 0,
+    trunkAngle: 0,
+    stanceWidth: 0,
+    currentPhase: 'IDLE',
+    repCount: 0,
+    isRepFinished: false,
+    keypointsDetected: 0,
+    totalKeypoints: 0,
+    lastEvaluation: null,
+    avgHipY: 0,
+    velocity: 0,
+  })
 
   useEffect(() => {
     const init = async () => {
@@ -228,6 +278,112 @@ function App() {
     setPoseResult(result)
     poseResultHistory.current.push(result)
 
+    // Validate required keypoints exist and have sufficient confidence
+    const requiredIndices = [5, 11, 12, 13, 14, 15, 16] // shoulder_left, hips, knees, ankles
+    const MIN_CONFIDENCE = 0.5 // Adjust threshold as needed
+
+    const allKeypointsValid = requiredIndices.every((idx) => {
+      const kp = result.keypoints[idx]
+      return kp && kp.visibility !== undefined && kp.visibility >= MIN_CONFIDENCE
+    })
+
+    // Analyze pose for feedback
+    if (allKeypointsValid) {
+      // 1. Extract Instant Features
+      const shoulder_left = result.keypoints[5]
+      const hip_left = result.keypoints[11]
+      const hip_right = result.keypoints[12]
+      const knee_left = result.keypoints[13]
+      const knee_right = result.keypoints[14]
+      const ankle_left = result.keypoints[15]
+      const ankle_right = result.keypoints[16]
+
+      // Calculate current angles
+      const kneeAngleLeft = calculateAngle(hip_left, knee_left, ankle_left)
+      const kneeAngleRight = calculateAngle(hip_right, knee_right, ankle_right)
+      const avgKnee = (kneeAngleLeft + kneeAngleRight) / 2
+      const trunkAngle = calculateAngle(shoulder_left, hip_left, knee_left)
+      const avgHip = midpoint(hip_left, hip_right)
+      const stanceWidth = Math.abs(ankle_right.x - ankle_left.x)
+
+      // 2. Detect Phase
+      const { state, isRepFinished, velocity } = repDetector.detect(avgHip.y)
+
+      // 3. Update aggregator phase and record features
+      aggregator.setPhase(state)
+      aggregator.processFrame(kneeAngleLeft, kneeAngleRight, trunkAngle, {
+        hip_left,
+        hip_right,
+        ankle_left,
+        ankle_right,
+      })
+
+      // 4. Evaluate Frame-level rules for instant feedback
+      const frameData = {
+        knee_flexion: avgKnee,
+        knee_flexion_left: kneeAngleLeft,
+        knee_flexion_right: kneeAngleRight,
+        trunk_angle: trunkAngle,
+        stance_width: stanceWidth,
+      }
+      const frameFeedbacks = ruleEngine.evaluateFrame(frameData, state)
+
+      // Show debounced frame-level errors during exercise
+      const frameErrors = frameFeedbacks.filter((f) => !f.passed)
+      if (frameErrors.length > 0 && state !== 'IDLE') {
+        setFeedback(formatErrorMessage(frameErrors[0].errorType, frameErrors[0].direction))
+      } else if (state !== 'IDLE' && frameErrors.length === 0) {
+        // Clear feedback when no active errors during exercise
+        setFeedback('Looking Good')
+      }
+
+      // 5. Evaluate Rep-level rules (Only when rep finishes)
+      if (isRepFinished) {
+        const repAggregates = aggregator.getRepAggregates()
+        const phaseAggregates = aggregator.getPhaseAggregates()
+
+        // Evaluate all rules (phase + rep + accumulated frame data)
+        const results = ruleEngine.evaluateWithPhases(repAggregates, phaseAggregates)
+
+        // Update debug info with evaluation results
+        setDebugInfo((prev) => ({
+          ...prev,
+          lastEvaluation: results,
+        }))
+
+        // Process results to find errors
+        const errors = results.filter((r: Feedback) => !r.passed)
+
+        if (errors.length === 0) {
+          setFeedback('Good Rep')
+        } else {
+          // Show the most important error
+          const msg = formatErrorMessage(errors[0].errorType, errors[0].direction)
+          setFeedback(msg)
+        }
+
+        // Reset for next rep
+        aggregator.reset()
+        ruleEngine.reset()
+        trunkAngleBuffer.current = []
+      }
+
+      // Update debug info
+      setDebugInfo((prev) => ({
+        ...prev,
+        kneeAngleLeft,
+        kneeAngleRight,
+        avgKneeAngle: avgKnee,
+        trunkAngle,
+        stanceWidth,
+        currentPhase: state,
+        isRepFinished,
+        totalKeypoints: result.keypoints.length,
+        avgHipY: avgHip.y,
+        velocity: velocity,
+      }))
+    }
+
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     ctx.save()
@@ -317,6 +473,26 @@ function App() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+  }
+
+  function formatErrorMessage(errorType: string, direction?: 'low' | 'high') {
+    switch (errorType) {
+      case 'insufficient_range_lower_body':
+        return 'Go Deeper! Your squat depth is too shallow.'
+      case 'joint_alignment_knees':
+        if (direction === 'low') {
+          return 'Widen Your Stance! Your feet are too close together.'
+        } else if (direction === 'high') {
+          return 'Narrow Your Stance! Your feet are too far apart.'
+        }
+        return 'Adjust Your Stance Width!'
+      case 'balance_stability':
+        return 'Stay Stable! Keep your torso steady throughout the movement.'
+      case 'trunk_control':
+        return 'Too Much Forward Lean! Keep your chest up and core tight.'
+      default:
+        return 'Check Your Form'
+    }
   }
 
   return (
@@ -410,18 +586,79 @@ function App() {
 
       {/* --- Pose Recognition Section --- */}
       <div className="flex basis-1/2 flex-col items-center justify-center gap-2">
-        <Label htmlFor="pose-recognition-card" className="text-2xl font-bold">
-          Pose Recognition Model
+        <Label htmlFor="rule-engine-card" className="text-2xl font-bold">
+          Rule Engine
         </Label>
-        <Card id="pose-recognition-card" className="h-full w-full px-2">
+        <Card id="rule-engine-card" className="h-full w-full px-2">
           <CardHeader>
-            <CardTitle>Input</CardTitle>
+            <CardTitle className="text-lg">{feedback}</CardTitle>
             <CardAction>
               <Button onClick={exportPoseData}>Export</Button>
             </CardAction>
           </CardHeader>
-          <CardContent className="bg-secondary h-full flex-1 overflow-auto p-2">
-            <pre className="h-full w-full text-xs">{JSON.stringify({ modelType, poseResult }, null, 2)}</pre>
+          <CardContent className="h-full flex-1 overflow-auto p-2">
+            {/* Phase Detection */}
+            <div className="mb-2 text-2xl">
+              <span>Current Phase:</span>
+              <span className={`ml-2`}>{debugInfo.currentPhase}</span>
+            </div>
+
+            {/* Features */}
+            <div className="grid grid-cols-2 gap-2 text-2xl">
+              <div>
+                <span>Left Knee:</span>
+                <span className="ml-2">{debugInfo.kneeAngleLeft.toFixed(1)}°</span>
+              </div>
+              <div>
+                <span>Right Knee:</span>
+                <span className="ml-2">{debugInfo.kneeAngleRight.toFixed(1)}°</span>
+              </div>
+              <div>
+                <span>Avg Knee:</span>
+                <span className="ml-2">{debugInfo.avgKneeAngle.toFixed(1)}°</span>
+              </div>
+              <div>
+                <span>Trunk:</span>
+                <span className="ml-2">{debugInfo.trunkAngle.toFixed(1)}°</span>
+              </div>
+              <div>
+                <span>Stance Width:</span>
+                <span className="ml-2">{debugInfo.stanceWidth.toFixed(1)}</span>
+              </div>
+              <div>
+                <span>Avg Hip Y:</span>
+                <span className="ml-2">{debugInfo.avgHipY.toFixed(1)}</span>
+              </div>
+
+              <div>
+                <span>Hip Y Velocity:</span>
+                <span className="ml-2">{debugInfo.velocity.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Last Evaluation Results */}
+            {debugInfo.lastEvaluation && (
+              <div className="rounded-lg">
+                <div className="space-y-2 text-lg">
+                  {debugInfo.lastEvaluation.map((result, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between rounded p-2 ${
+                        result.passed ? 'bg-green-100 dark:bg-green-900' : 'bg-red-100 dark:bg-red-900'
+                      }`}
+                    >
+                      <span className="font-medium">{result.ruleId}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-2xl">
+                          {result.value?.toFixed(2)} vs {result.threshold?.toFixed(2)}
+                        </span>
+                        <span>{result.passed ? '✅' : '❌'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
