@@ -42,7 +42,8 @@ export const EDGES_33: [number, number][] = [
 
 export type MediaType = HTMLImageElement | HTMLVideoElement
 
-export type TfjsModelType = 'movenet-lightning' | 'blazepose-lite' | 'yolo11'
+export type TfjsModelType = 'movenet' | 'blazepose' | 'yolo11'
+export type TfjsModelVariant = 'lite' | 'full' | 'heavy' | 'lightning' | 'thunder'
 
 /**
  * Interface for a pose detector, abstracting away the specific implementation
@@ -53,7 +54,7 @@ export interface PoseDetector {
    * Initializes the pose detector model.
    * @param options - Selection of model and backend for TFJS models.
    */
-  initialize(options?: { model?: TfjsModelType; backend?: 'webgl' | 'wasm' }): Promise<void>
+  initialize(options?: { model?: TfjsModelType; backend?: 'webgl' | 'wasm'; variant?: TfjsModelVariant }): Promise<void>
 
   /**
    * Detects poses in a single image or video frame.
@@ -72,13 +73,15 @@ interface InitOptions {
   model?: TfjsModelType
   backend?: 'webgl' | 'wasm'
   solutionPath?: string
+  variant?: TfjsModelVariant
 }
 
 export class TfjsPoseDetector implements PoseDetector {
   private detector: posedetection.PoseDetector | null = null
   private yoloDetector: GraphModel | null = null
-  private modelType: TfjsModelType = 'blazepose-lite'
-  private loadedModelType: TfjsModelType | null = null
+  private modelType: TfjsModelType = 'blazepose'
+  private modelVariant: TfjsModelVariant | undefined = 'lite'
+  private loadedModelKey: string | null = null
   private backend: 'webgl' | 'wasm' = 'webgl'
   private solutionPath = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose'
   private initializingPromise: Promise<void> | null = null
@@ -87,21 +90,33 @@ export class TfjsPoseDetector implements PoseDetector {
     if (config?.model) this.modelType = config.model
     if (config?.backend) this.backend = config.backend
     if (config?.solutionPath) this.solutionPath = config.solutionPath
+    if (config?.variant) this.modelVariant = config.variant
   }
 
   async initialize(options?: InitOptions) {
     if (options?.model) this.modelType = options.model
     if (options?.backend) this.backend = options.backend
     if (options?.solutionPath) this.solutionPath = options.solutionPath
+    if (options?.variant) this.modelVariant = options.variant
 
     // Prevent concurrent / duplicate loads
     if (this.initializingPromise) return this.initializingPromise
-    if (this.loadedModelType === this.modelType) {
-      // If same model already loaded, skip
+    const key = `${this.modelType}:${this.modelVariant ?? 'default'}:${this.backend}`
+    if (this.loadedModelKey === key) {
       return
     }
 
-    const usingMediapipeRuntime = this.modelType === 'blazepose-lite'
+    // Dispose previous detector when switching model/variant/backend
+    if (this.detector) {
+      this.detector.dispose()
+      this.detector = null
+    }
+    if (this.yoloDetector) {
+      this.yoloDetector.dispose()
+      this.yoloDetector = null
+    }
+
+    const usingMediapipeRuntime = this.modelType === 'blazepose'
 
     this.initializingPromise = (async () => {
       if (!usingMediapipeRuntime) {
@@ -111,17 +126,21 @@ export class TfjsPoseDetector implements PoseDetector {
 
       console.log(`Loading model: ${this.modelType} ...`)
       switch (this.modelType) {
-        case 'blazepose-lite': {
+        case 'blazepose': {
+          const bpVariant = (this.modelVariant as 'lite' | 'full' | 'heavy') ?? 'lite'
           this.detector = await posedetection.createDetector(posedetection.SupportedModels.BlazePose, {
             runtime: 'mediapipe',
-            modelType: 'lite',
+            modelType: bpVariant,
             solutionPath: this.solutionPath,
           })
           break
         }
-        case 'movenet-lightning': {
+        case 'movenet': {
           this.detector = await posedetection.createDetector(posedetection.SupportedModels.MoveNet, {
-            modelType: posedetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+            modelType:
+              this.modelVariant === 'thunder'
+                ? posedetection.movenet.modelType.SINGLEPOSE_THUNDER
+                : posedetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
           })
           break
         }
@@ -134,8 +153,8 @@ export class TfjsPoseDetector implements PoseDetector {
           throw new Error('Unsupported model')
       }
 
-      this.loadedModelType = this.modelType
-      console.log(`Model loaded: ${this.modelType}`)
+      this.loadedModelKey = key
+      console.log(`Model loaded: ${this.modelType} (${this.modelVariant ?? 'default'})`)
     })()
 
     try {

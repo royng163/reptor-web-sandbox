@@ -5,7 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardAction }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Toggle } from '@/components/ui/toggle'
 import { Button } from './components/ui/button'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { ButtonGroup } from '@/components/ui/button-group'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuTrigger,
+  DropdownMenuRadioItem,
+} from '@/components/ui/dropdown-menu'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import { TfjsPoseDetector, EDGES_17, EDGES_33, type PoseDetector } from '@/lib/pose-detection/poseDetection'
 import {
@@ -19,6 +26,7 @@ import {
   midpoint,
 } from '@royng163/reptor-core'
 import SQUAT_RULES from '@/assets/rules/squat_rules.json'
+import { ChevronDownIcon } from 'lucide-react'
 
 // Debug state type
 interface DebugInfo {
@@ -78,7 +86,8 @@ function App() {
   webcamRunningRef.current = webcamRunning
   const videoFileActiveRef = useRef(false)
   const animationFrameId = useRef<number | null>(null)
-  const [modelType, setModelType] = useState<'movenet-lightning' | 'blazepose-lite' | 'yolo11'>('blazepose-lite')
+  const [modelType, setModelType] = useState<'movenet' | 'blazepose' | 'yolo11'>('blazepose')
+  const [modelVariant, setModelVariant] = useState<'lite' | 'full' | 'heavy' | 'lightning' | 'thunder' | null>('lite')
   const [loadingModel, setLoadingModel] = useState(false)
   const [poseResult, setPoseResult] = useState<PoseResult | null>(null)
   const poseResultHistory = useRef<PoseResult[]>([])
@@ -160,12 +169,13 @@ function App() {
       await detectorRef.current.initialize({
         model: modelType,
         backend: 'webgl',
+        variant: modelVariant ?? undefined,
       })
 
       setLoadingModel(false)
     }
     init()
-  }, [modelType])
+  }, [modelType, modelVariant])
 
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (loadingModel) {
@@ -502,26 +512,78 @@ function App() {
         <Label htmlFor="pose-landmarker-card" className="text-2xl font-bold">
           Pose Detection Model {loadingModel && '(Loading...)'}
         </Label>
-        <RadioGroup
-          className="grid-flow-col"
-          defaultValue="blazepose-lite"
-          orientation="horizontal"
-          onValueChange={(v) => setModelType(v as any)}
-          disabled={loadingModel}
-        >
-          <div className="flex items-center gap-3">
-            <RadioGroupItem value="blazepose-lite" id="r1" />
-            <Label htmlFor="r1">Mediapipe</Label>
-          </div>
-          <div className="flex items-center gap-3">
-            <RadioGroupItem value="movenet-lightning" id="r2" />
-            <Label htmlFor="r2">MoveNet</Label>
-          </div>
-          <div className="flex items-center gap-3">
-            <RadioGroupItem value="yolo11" id="r3" />
-            <Label htmlFor="r3">YOLO11</Label>
-          </div>
-        </RadioGroup>
+        <ButtonGroup>
+          <ButtonGroup>
+            <Button
+              variant={modelType === 'blazepose' ? 'default' : 'outline'}
+              onClick={() => setModelType('blazepose')}
+              disabled={loadingModel}
+            >
+              BlazePose
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant={modelType === 'blazepose' ? 'default' : 'outline'} disabled={loadingModel}>
+                  <ChevronDownIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuRadioGroup
+                  value={modelVariant as 'lite' | 'full' | 'heavy'}
+                  onValueChange={(v) => {
+                    setModelVariant(v as any)
+                    setModelType('blazepose')
+                  }}
+                >
+                  <DropdownMenuRadioItem value="lite">Lite</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="full">Full</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="heavy">Heavy</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ButtonGroup>
+
+          <ButtonGroup>
+            <Button
+              variant={modelType === 'movenet' ? 'default' : 'outline'}
+              onClick={() => setModelType('movenet')}
+              disabled={loadingModel}
+            >
+              MoveNet
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant={modelType === 'movenet' ? 'default' : 'outline'} disabled={loadingModel}>
+                  <ChevronDownIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuRadioGroup
+                  value={modelVariant as 'lightning' | 'thunder'}
+                  onValueChange={(v) => {
+                    setModelVariant(v as any)
+                    setModelType('movenet')
+                  }}
+                >
+                  <DropdownMenuRadioItem value="lightning">Lightning</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="thunder">Thunder</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ButtonGroup>
+
+          <ButtonGroup>
+            <Button
+              variant={modelType === 'yolo11' ? 'default' : 'outline'}
+              onClick={() => setModelType('yolo11')}
+              disabled={loadingModel}
+            >
+              YOLO11
+            </Button>
+          </ButtonGroup>
+        </ButtonGroup>
+
         <Card id="pose-landmarker-card" className="h-full w-full px-2">
           {/** Input Source Selection **/}
           <Tabs defaultValue="file">
